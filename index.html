@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Підготовка до сесії</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f5f2; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
+    --border: #d9d9d3; --accent: #2f6fed; --accent-text: #ffffff;
+    --hard: #d9822b; --ai: #e8f0fe; --me: #e6f4ea; --expl: #fdf3e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151515; --card: #202020; --text: #ececea; --muted: #9a9a94;
+      --border: #3a3a37; --accent: #5b8def; --accent-text: #0e0e0e;
+      --hard: #e8a04f; --ai: #1d2a44; --me: #1c3326; --expl: #3a2f18;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.5; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 64px 16px 60px; }
+  h1 { font-size: 1.4rem; margin: 0 0 16px; }
+  .panel { background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+  label.opt { display: flex; align-items: center; gap: 10px; padding: 8px 0; cursor: pointer; }
+  label.opt input { width: 20px; height: 20px; }
+  .count { color: var(--muted); font-size: .9rem; margin-left: auto; }
+  button { font: inherit; border: 1px solid var(--border); background: var(--card);
+    color: var(--text); padding: 10px 16px; border-radius: 10px; cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.hard-on { border-color: var(--hard); color: var(--hard); font-weight: 600; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .row.spread { justify-content: space-between; }
+  .progress { color: var(--muted); font-size: .9rem; }
+  .tag { font-size: .8rem; color: var(--muted); margin-bottom: 8px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 30px 22px; margin: 12px 0; cursor: pointer; min-height: 160px; }
+  .question { font-size: 1.2rem; font-weight: 600; white-space: pre-wrap; }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: 14px; }
+  .answers { margin-top: 18px; display: grid; gap: 10px; }
+  .block { border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; }
+  .block h3 { margin: 0 0 4px; font-size: .8rem; text-transform: uppercase;
+    letter-spacing: .04em; color: var(--muted); }
+  .b-ai { background: var(--ai); } .b-me { background: var(--me); } .b-expl { background: var(--expl); }
+  .hidden { display: none; }
+  .err { color: #c0392b; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Підготовка до сесії</h1>
+
+  <!-- Екран вибору -->
+  <div id="setup">
+    <div class="panel" id="loading">Завантажую питання…</div>
+
+    <div class="panel hidden" id="fallback">
+      <p class="err">Не вдалося автоматично завантажити questions.xlsx.</p>
+      <p>Вибери файл вручну:</p>
+      <input type="file" id="filePicker" accept=".xlsx,.xls">
+    </div>
+
+    <div class="panel hidden" id="options">
+      <strong>Які питання?</strong>
+      <div id="sheetList"></div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:12px 0">
+      <label class="opt"><input type="checkbox" id="shuffle" checked> Перемішати порядок</label>
+      <label class="opt"><input type="checkbox" id="onlyHard"> Тільки складні <span class="count" id="hardCount"></span></label>
+      <div class="row" style="margin-top:14px">
+        <button class="primary" id="startBtn">Почати</button>
+        <span class="progress" id="totalInfo"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Екран питань -->
+  <div id="quiz" class="hidden">
+    <div class="row spread">
+      <button id="backMenu">← Меню</button>
+      <span class="progress" id="progress"></span>
+    </div>
+    <div class="card" id="card">
+      <div class="tag" id="cardTag"></div>
+      <div class="question" id="qText"></div>
+      <div class="hint" id="hint">Сформулюй відповідь, потім натисни на картку</div>
+      <div class="answers hidden" id="answers">
+        <div class="block b-ai"><h3>Відповідь від ШІ</h3><div id="aAi"></div></div>
+        <div class="block b-me"><h3>Моя відповідь</h3><div id="aMe"></div></div>
+        <div class="block b-expl"><h3>Пояснення від ШІ</h3><div id="aExpl"></div></div>
+      </div>
+    </div>
+    <div class="row spread">
+      <button id="prevBtn">← Назад</button>
+      <button id="hardBtn">☆ Складне</button>
+      <button id="nextBtn" class="primary">Далі →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const FILE = 'questions.xlsx';
+let all = [];            // усі питання з Excel
+let deck = [];           // поточна колода
+let idx = 0;
+let revealed = false;
+let hard = new Set();
+
+try { hard = new Set(JSON.parse(localStorage.getItem('hard') || '[]')); } catch (e) {}
+function saveHard() {
+  try { localStorage.setItem('hard', JSON.stringify([...hard])); } catch (e) {}
+}
+const $ = id => document.getElementById(id);
+
+// ---------- Завантаження Excel ----------
+fetch(FILE)
+  .then(r => { if (!r.ok) throw new Error('not found'); return r.arrayBuffer(); })
+  .then(parseWorkbook)
+  .catch(() => { $('loading').classList.add('hidden'); $('fallback').classList.remove('hidden'); });
+
+$('filePicker').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) f.arrayBuffer().then(parseWorkbook);
+});
+
+function parseWorkbook(buf) {
+  const wb = XLSX.read(buf, { type: 'array' });
+  all = [];
+  wb.SheetNames.forEach(name => {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' });
+    rows.slice(1).forEach(r => {
+      const q = String(r[0] || '').trim();
+      if (!q) return;
+      all.push({
+        sheet: name, q,
+        ai: String(r[1] || '').trim(),
+        me: String(r[2] || '').trim(),
+        expl: String(r[3] || '').trim(),
+        key: name + '||' + q
+      });
+    });
+  });
+  $('loading').classList.add('hidden');
+  $('fallback').classList.add('hidden');
+  buildSetup();
+}
+
+// ---------- Екран вибору ----------
+function buildSetup() {
+  const names = [...new Set(all.map(x => x.sheet))];
+  const list = $('sheetList');
+  list.innerHTML = '';
+  names.forEach(n => {
+    const label = document.createElement('label');
+    label.className = 'opt';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.value = n; cb.checked = true;
+    cb.addEventListener('change', updateInfo);
+    const span = document.createElement('span');
+    span.textContent = n;
+    const cnt = document.createElement('span');
+    cnt.className = 'count';
+    cnt.textContent = all.filter(x => x.sheet === n).length + ' пит.';
+    label.append(cb, span, cnt);
+    list.appendChild(label);
+  });
+  $('onlyHard').addEventListener('change', updateInfo);
+  $('options').classList.remove('hidden');
+  updateInfo();
+}
+
+function selectedSheets() {
+  return [...document.querySelectorAll('#sheetList input:checked')].map(c => c.value);
+}
+function pool() {
+  const sel = selectedSheets();
+  let p = all.filter(x => sel.includes(x.sheet));
+  if ($('onlyHard').checked) p = p.filter(x => hard.has(x.key));
+  return p;
+}
+function updateInfo() {
+  const sel = selectedSheets();
+  const hc = all.filter(x => sel.includes(x.sheet) && hard.has(x.key)).length;
+  $('hardCount').textContent = hc + ' шт.';
+  const n = pool().length;
+  $('totalInfo').textContent = 'Буде питань: ' + n;
+  $('startBtn').disabled = n === 0;
+}
+
+$('startBtn').addEventListener('click', () => {
+  deck = pool().slice();
+  if ($('shuffle').checked) {
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+  }
+  idx = 0;
+  $('setup').classList.add('hidden');
+  $('quiz').classList.remove('hidden');
+  show();
+});
+
+$('backMenu').addEventListener('click', () => {
+  $('quiz').classList.add('hidden');
+  $('setup').classList.remove('hidden');
+  updateInfo();
+});
+
+// ---------- Показ картки ----------
+function setText(id, t) { $(id).textContent = t || '—'; }
+
+function show() {
+  const c = deck[idx];
+  revealed = false;
+  $('cardTag').textContent = c.sheet;
+  $('qText').textContent = c.q;
+  $('answers').classList.add('hidden');
+  $('hint').classList.remove('hidden');
+  setText('aAi', c.ai); setText('aMe', c.me); setText('aExpl', c.expl);
+  $('progress').textContent = 'Питання ' + (idx + 1) + ' з ' + deck.length;
+  $('prevBtn').disabled = idx === 0;
+  $('nextBtn').textContent = idx === deck.length - 1 ? 'Завершити' : 'Далі →';
+  updateHardBtn();
+}
+
+function toggleReveal() {
+  revealed = !revealed;
+  $('answers').classList.toggle('hidden', !revealed);
+  $('hint').classList.toggle('hidden', revealed);
+}
+
+function updateHardBtn() {
+  const on = hard.has(deck[idx].key);
+  $('hardBtn').textContent = on ? '★ Складне' : '☆ Складне';
+  $('hardBtn').classList.toggle('hard-on', on);
+}
+
+function next() {
+  if (idx < deck.length - 1) { idx++; show(); }
+  else $('backMenu').click();
+}
+function prev() { if (idx > 0) { idx--; show(); } }
+
+$('card').addEventListener('click', toggleReveal);
+$('nextBtn').addEventListener('click', next);
+$('prevBtn').addEventListener('click', prev);
+$('hardBtn').addEventListener('click', () => {
+  const k = deck[idx].key;
+  hard.has(k) ? hard.delete(k) : hard.add(k);
+  saveHard();
+  updateHardBtn();
+});
+
+document.addEventListener('keydown', e => {
+  if ($('quiz').classList.contains('hidden')) return;
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleReveal(); }
+  else if (e.key === 'ArrowRight') next();
+  else if (e.key === 'ArrowLeft') prev();
+});
+</script>
+</body>
+</html>
