@@ -116,7 +116,7 @@ function saveHard() {
 const $ = id => document.getElementById(id);
 
 // ---------- Завантаження Excel ----------
-fetch(FILE)
+fetch(FILE + '?v=' + Date.now(), { cache: 'no-store' })
   .then(r => { if (!r.ok) throw new Error('not found'); return r.arrayBuffer(); })
   .then(parseWorkbook)
   .catch(() => { $('loading').classList.add('hidden'); $('fallback').classList.remove('hidden'); });
